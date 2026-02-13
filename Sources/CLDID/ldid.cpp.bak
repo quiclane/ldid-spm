@@ -33,11 +33,6 @@
 #include <string>
 #include <vector>
 
-#include <limits.h>
-static inline uint32_t ldid_u32(uint64_t v){if(v>0xffffffffULL){fprintf(stderr,"ldid: value too large\n");exit(1);}return (uint32_t)v;}
-static inline uint32_t ldid_u32s(size_t v){return ldid_u32((uint64_t)v);}
-static inline int ldid_i32s(size_t v){if(v>(size_t)INT_MAX){fprintf(stderr,"ldid: value too large\n");exit(1);}return (int)v;}
-
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -56,8 +51,6 @@ static inline int ldid_i32s(size_t v){if(v>(size_t)INT_MAX){fprintf(stderr,"ldid
 # endif
 
 #include <openssl/opensslv.h>
-
-#include "ldid_spm_bio_map.h"
 # if OPENSSL_VERSION_MAJOR >= 3
 #  include <openssl/provider.h>
 # endif
@@ -555,9 +548,9 @@ static size_t most(std::streambuf &stream, void *data, size_t size) {
 }
 
 static inline void pad(std::streambuf &stream, size_t size) {
-    std::vector<unsigned char> padding(size);
-    memset(padding.data(),0,size);
-    put(stream,padding.data(),size);
+    char padding[size];
+    memset(padding, 0, size);
+    put(stream, padding, size);
 }
 
 template <typename Type_>
@@ -813,7 +806,7 @@ class Data :
   public:
     Data(void *base, size_t size) :
         base_(base),
-        size_(ldid_u32s(size))
+        size_(size)
     {
     }
 
@@ -951,18 +944,18 @@ class MachHeader :
             switch (Swap(load_command->cmd)) {
                 case LC_SEGMENT: {
                     auto segment(reinterpret_cast<struct segment_command *>(load_command));
-                    code(segment->segname, load_command, NULL, GetOffset<void>(ldid_u32((uint64_t)segment->fileoff)), segment->filesize);
+                    code(segment->segname, load_command, NULL, GetOffset<void>(segment->fileoff), segment->filesize);
                     auto section(reinterpret_cast<struct section *>(segment + 1));
                     for (uint32_t i(0), e(Swap(segment->nsects)); i != e; ++i, ++section)
-                        code(segment->segname, load_command, section->sectname, GetOffset<void>(ldid_u32((uint64_t)(segment->fileoff + section->offset))), section->size);
+                        code(segment->segname, load_command, section->sectname, GetOffset<void>(segment->fileoff + section->offset), section->size);
                 } break;
 
                 case LC_SEGMENT_64: {
                     auto segment(reinterpret_cast<struct segment_command_64 *>(load_command));
-                    code(segment->segname, load_command, NULL, GetOffset<void>(ldid_u32((uint64_t)segment->fileoff)), segment->filesize);
+                    code(segment->segname, load_command, NULL, GetOffset<void>(segment->fileoff), segment->filesize);
                     auto section(reinterpret_cast<struct section_64 *>(segment + 1));
                     for (uint32_t i(0), e(Swap(segment->nsects)); i != e; ++i, ++section)
-                        code(segment->segname, load_command, section->sectname, GetOffset<void>(ldid_u32((uint64_t)(segment->fileoff + section->offset))), section->size);
+                        code(segment->segname, load_command, section->sectname, GetOffset<void>(segment->fileoff + section->offset), section->size);
                 } break;
             }
     }
@@ -994,7 +987,7 @@ class FatMachHeader :
     FatMachHeader(void *base, size_t size, fat_arch *fat_arch, uint32_t align) :
         MachHeader(base, size),
         fat_arch_(fat_arch),
-        align_(ldid_u32s(align))
+        align_(align)
     {
     }
 
@@ -1222,7 +1215,7 @@ struct Algorithm {
     int nid_;
 
     Algorithm(size_t size, uint8_t type, int nid) :
-        size_(ldid_u32s(size)),
+        size_(size),
         type_(type),
         nid_(nid)
     {
@@ -1333,10 +1326,10 @@ struct CodesignAllocation {
     CodesignAllocation(FatMachHeader mach_header, size_t offset, size_t size, size_t limit, size_t alloc, size_t align, const char *arch, const Baton &baton) :
         mach_header_(mach_header),
         offset_(offset),
-        size_(ldid_u32s(size)),
+        size_(size),
         limit_(limit),
-        alloc_(ldid_u32s(alloc)),
-        align_(ldid_u32s(align)),
+        alloc_(alloc),
+        align_(align),
         arch_(arch),
         baton_(baton)
     {
@@ -1582,7 +1575,7 @@ static void Allocate(const void *idata, size_t isize, std::streambuf &output, co
 
         offset = Align(offset, 1 << align);
 
-        uint32_t limit(ldid_u32s(size));
+        uint32_t limit(size);
         if (alloc != 0)
             limit = Align(limit, 0x10);
 
@@ -1663,8 +1656,8 @@ static void Allocate(const void *idata, size_t isize, std::streambuf &output, co
 
                     if (strncmp(segment_command->segname, "__LINKEDIT", 16) == 0) {
                         size_t size(mach_header.Swap(allocation.limit_ + allocation.alloc_ - mach_header.Swap(segment_command->fileoff)));
-                        segment_command->filesize = ldid_u32s(size);
-                        segment_command->vmsize = ldid_u32((uint64_t)Align(size, 1 << allocation.align_));
+                        segment_command->filesize = size;
+                        segment_command->vmsize = Align(size, 1 << allocation.align_);
                     }
                 } break;
 
@@ -1682,8 +1675,8 @@ static void Allocate(const void *idata, size_t isize, std::streambuf &output, co
 
                     if (strncmp(segment_command->segname, "__LINKEDIT", 16) == 0) {
                         size_t size(mach_header.Swap(allocation.limit_ + allocation.alloc_ - mach_header.Swap(segment_command->fileoff)));
-                        segment_command->filesize = ldid_u32s(size);
-                        segment_command->vmsize = ldid_u32((uint64_t)Align(size, 1 << allocation.align_));
+                        segment_command->filesize = size;
+                        segment_command->vmsize = Align(size, 1 << allocation.align_);
                     }
                 } break;
             }
@@ -1920,11 +1913,11 @@ class P12Signer : public ldid::Signer {
             _foreach (certid, certs) {
                 X509 *cert = d2i_X509_bio(Buffer(Map(certid, false)), NULL);
                 if (cert == NULL) {
-                    fprintf(stderr, "ldid: An error occured while parsing: %s\\n", ERR_error_string(ERR_get_error(), NULL));
+                    fprintf(stderr, "ldid: An error occured while parsing: %s\n", ERR_error_string(ERR_get_error(), NULL));
                     exit(1);
                 }
                 if (sk_X509_push(ca_, cert) == 0) {
-                    fprintf(stderr, "ldid: An error occured while loading: %s\\n", ERR_error_string(ERR_get_error(), NULL));
+                    fprintf(stderr, "ldid: An error occured while loading: %s\n", ERR_error_string(ERR_get_error(), NULL));
                     exit(1);
                 }
             }
@@ -2115,18 +2108,22 @@ class Octet {
     }
 };
 
-#if !LDID_DISABLE_PKCS7
 typedef struct {
     ASN1_OBJECT *algorithm;
     ASN1_OCTET_STRING *value;
 } APPLE_CDHASH;
 
 DECLARE_ASN1_FUNCTIONS(APPLE_CDHASH)
+#if !LDID_DISABLE_PKCS7
+#if !LDID_DISABLE_PKCS7
 
 ASN1_NDEF_SEQUENCE(APPLE_CDHASH) = {
     ASN1_SIMPLE(APPLE_CDHASH, algorithm, ASN1_OBJECT),
+#endif
     ASN1_SIMPLE(APPLE_CDHASH, value, ASN1_OCTET_STRING),
 } ASN1_NDEF_SEQUENCE_END(APPLE_CDHASH)
+
+#endif
 
 IMPLEMENT_ASN1_FUNCTIONS(APPLE_CDHASH)
 
@@ -2134,36 +2131,132 @@ typedef struct {
     ASN1_OBJECT *object;
     STACK_OF(APPLE_CDHASH) *cdhashes;
 } APPLE_CDATTR;
+#if !LDID_DISABLE_PKCS7
 
 DECLARE_ASN1_FUNCTIONS(APPLE_CDATTR)
 
+#endif
+#if !LDID_DISABLE_PKCS7
 ASN1_NDEF_SEQUENCE(APPLE_CDATTR) = {
     ASN1_SIMPLE(APPLE_CDATTR, object, ASN1_OBJECT),
     ASN1_SET_OF(APPLE_CDATTR, cdhashes, APPLE_CDHASH),
 } ASN1_NDEF_SEQUENCE_END(APPLE_CDATTR)
 
+#endif
+
 IMPLEMENT_ASN1_FUNCTIONS(APPLE_CDATTR)
-#endif
-#if !LDID_DISABLE_PKCS7
+
 class Signature {
+#if !LDID_DISABLE_PKCS7
+  private:
     PKCS7 *value_;
+
   public:
-    Signature(const ldid::Signer &signer,const Buffer &data,const std::string &xml,const ldid::Hash &hash){
-        value_=PKCS7_new();
-        if(!value_)abort();
-        PKCS7_set_type(value_,NID_pkcs7_signed);
-        PKCS7_content_new(value_,NID_pkcs7_data);
-        STACK_OF(X509)*certs=signer;
-        for(int i=sk_X509_num(certs)-1;i>=0;--i)
-            PKCS7_add_certificate(value_,sk_X509_value(certs,i));
-        auto info=PKCS7_sign_add_signer(value_,signer,signer,NULL,PKCS7_NOSMIMECAP);
-        PKCS7_set_detached(value_,1);
-        PKCS7_final(value_,data,PKCS7_BINARY);
-    }
-    ~Signature(){PKCS7_free(value_);}
-    operator PKCS7*()const{return value_;}
-};
+    Signature(const ldid::Signer &signer, const Buffer &data, const std::string &xml, const ldid::Hash &hash) {
+#if !LDID_DISABLE_PKCS7
+        value_ = PKCS7_new();
+        if (value_ == NULL){
+            fprintf(stderr, "ldid: An error occured while getting creating PKCS7 file: %s\n", ERR_error_string(ERR_get_error(), NULL));
+            exit(1);
+        }
+
+        if (PKCS7_set_type(value_, NID_pkcs7_signed) == 0 ||
+           PKCS7_content_new(value_, NID_pkcs7_data) == 0) {
+            fprintf(stderr, "ldid: An error occured while getting creating PKCS7 file: %s\n", ERR_error_string(ERR_get_error(), NULL));
+            exit(1);
+        }
+
+        STACK_OF(X509) *certs(signer);
+        for (unsigned i(0), e(sk_X509_num(certs)); i != e; i++) {
+            if (PKCS7_add_certificate(value_, sk_X509_value(certs, e - i - 1)) == 0) {
+                fprintf(stderr, "ldid: An error occured while signing: %s\n", ERR_error_string(ERR_get_error(), NULL));
+                exit(1);
+            }
+        }
+
+        STACK_OF(X509_ATTRIBUTE) *attributes(sk_X509_ATTRIBUTE_new_null());
+        _assert(attributes != NULL);
+        _scope({ sk_X509_ATTRIBUTE_pop_free(attributes, X509_ATTRIBUTE_free); });
+
+        auto info(PKCS7_sign_add_signer(value_, signer, signer, NULL, PKCS7_NOSMIMECAP));
+        if (info == NULL){
+            fprintf(stderr, "ldid: An error occured while signing: %s\n", ERR_error_string(ERR_get_error(), NULL));
+            exit(1);
+        }
+
+        {
+            auto attribute(X509_ATTRIBUTE_create(NID_pkcs9_contentType, V_ASN1_OBJECT, OBJ_nid2obj(NID_pkcs7_data)));
+            _assert(attribute != NULL);
+            _assert(sk_X509_ATTRIBUTE_push(attributes, attribute) != 0);
+        }
+
+        {
+            auto cdattr(APPLE_CDATTR_new());
+            _assert(cdattr != NULL);
+            _scope({ APPLE_CDATTR_free(cdattr); });
+
+            static auto nid(OBJ_create("1.2.840.113635.100.9.2", "apple-2", "Apple 2"));
+            cdattr->object = OBJ_nid2obj(nid);
+
+            for (Algorithm *pointer : GetAlgorithms()) {
+                Algorithm &algorithm(*pointer);
+                APPLE_CDHASH *cdhash(APPLE_CDHASH_new());
+                _assert(cdhash != NULL);
+                _assert(sk_push((_STACK *) cdattr->cdhashes, cdhash) != 0);
+                cdhash->algorithm = OBJ_nid2obj(algorithm.nid_);
+                Octet string(algorithm[hash], algorithm.size_);
+                cdhash->value = string;
+                string.release();
+            }
+
+            // in e20b57270dece66ce2c68aeb5d14dd6d9f3c5d68 OpenSSL removed a "hack"
+            // in the process, they introduced a useful bug in X509_ATTRIBUTE_set1_data
+            // however, I don't want to rely on that or detect the bypass before it
+            // so, instead, I create my own compatible attribute and re-serialize it :/
+
+            ASN1_STRING *seq(ASN1_STRING_new());
+            _assert(seq != NULL);
+            _scope({ ASN1_STRING_free(seq); });
+            seq->length = ASN1_item_i2d((ASN1_VALUE *) cdattr, &seq->data, ASN1_ITEM_rptr(APPLE_CDATTR));
+
+            X509_ATTRIBUTE *attribute(NULL);
+            const unsigned char *data(seq->data);
+            _assert(d2i_X509_ATTRIBUTE(&attribute, &data, seq->length) != 0);
+            _assert(attribute != NULL);
+            _assert(sk_X509_ATTRIBUTE_push(attributes, attribute) != 0);
+        }
+
+        {
+            // XXX: move the "cdhashes" plist code to here and remove xml argument
+
+            Octet string(xml);
+            static auto nid(OBJ_create("1.2.840.113635.100.9.1", "apple-1", "Apple 1"));
+            auto attribute(X509_ATTRIBUTE_create(nid, V_ASN1_OCTET_STRING, string));
+            _assert(attribute != NULL);
+            string.release();
+            _assert(sk_X509_ATTRIBUTE_push(attributes, attribute) != 0);
+        }
+
+        _assert(PKCS7_set_signed_attributes(info, attributes) != 0);
+        PKCS7_set_detached(value_, 1);
+
+        if (PKCS7_final(value_, data, PKCS7_BINARY) == 0) {
+            fprintf(stderr, "ldid: Failed to sign: %s\n", ERR_error_string(ERR_get_error(), NULL));
 #endif
+            exit(1);
+        }
+    }
+
+    ~Signature() {
+        PKCS7_free(value_);
+#endif
+
+    }
+
+    operator PKCS7 *() const {
+        return value_;
+    }
+};
 
 class NullBuffer :
     public std::streambuf
@@ -2343,7 +2436,7 @@ static void req(std::streambuf &buffer, uint32_t value) {
 }
 
 static void req(std::streambuf &buffer, const std::string &value) {
-    req(buffer, ldid_u32s(value.size()));
+    req(buffer, value.size());
     put(buffer, value.data(), value.size());
     static uint8_t zeros[] = {0,0,0,0};
     put(buffer, zeros, 3 - (value.size() + 3) % 4);
@@ -2364,18 +2457,16 @@ Hash Sign(const void *idata, size_t isize, std::streambuf &output, const std::st
     std::string team;
     std::string common;
 
-    
-#if !LDID_DISABLE_PKCS7
     if (signer) {
         auto name(X509_get_subject_name(signer));
-        if (name == NULL) {
+        if (name == NULL){
             fprintf(stderr, "ldid: Your certificate might not be valid: %s\n", ERR_error_string(ERR_get_error(), NULL));
             exit(1);
         }
         get(team, name, NID_organizationalUnitName);
         get(common, name, NID_commonName);
     }
-#endif
+
     if (flag_t != NULL) {
         team = flag_t;
     }
@@ -2416,7 +2507,7 @@ Hash Sign(const void *idata, size_t isize, std::streambuf &output, const std::st
     Allocate(idata, isize, output, fun([&](const MachHeader &mach_header, Baton &baton, size_t size) -> size_t {
         size_t alloc(sizeof(struct SuperBlob));
 
-        uint32_t normal(ldid_u32s((size + PageSize_ - 1)/ PageSize_));
+        uint32_t normal((size + PageSize_ - 1) / PageSize_);
 
         uint32_t special(0);
 
@@ -2503,16 +2594,11 @@ Hash Sign(const void *idata, size_t isize, std::streambuf &output, const std::st
         for (Algorithm *algorithm : GetAlgorithms())
             alloc = Align(alloc + directory + (special + normal) * algorithm->size_, 16);
 
-#if !LDID_DISABLE_PKCS7
-        
-#if !LDID_DISABLE_PKCS7
-if (signer) {
+        if (signer) {
             alloc += sizeof(struct BlobIndex);
             alloc += sizeof(struct Blob);
             alloc += certificate;
         }
-#endif
-#endif
 
         return alloc;
     }), fun([&](const MachHeader &mach_header, const Baton &baton, std::streambuf &output, size_t limit, size_t left, size_t right, const std::string &overlap, const char *top, const Progress &progress) -> size_t {
@@ -2590,7 +2676,7 @@ if (signer) {
                 special = std::max(special, blob.first);
             _foreach (slot, posts)
                 special = std::max(special, slot.first);
-            uint32_t normal(ldid_u32s((limit + PageSize_ - 1)/ PageSize_));
+            uint32_t normal((limit + PageSize_ - 1) / PageSize_);
 
             CodeDirectory directory;
             directory.version = Swap(uint32_t(0x00020400));
@@ -2663,14 +2749,9 @@ if (signer) {
             ++total;
         }
 
-        
-#if !LDID_DISABLE_PKCS7
-#if !LDID_DISABLE_PKCS7
-if (signer) {
+        if (signer) {
             auto plist(plist_new_dict());
-            _scope({ plist_free(plist); }
-#endif
-    }), progress);
+            _scope({ plist_free(plist); });
 
             auto cdhashes(plist_new_array());
             plist_dict_set_item(plist, "cdhashes", cdhashes);
@@ -2711,7 +2792,6 @@ if (signer) {
             const auto &save(insert(blobs, CSSLOT_SIGNATURESLOT, CSMAGIC_BLOBWRAPPER, data));
             _assert(save.size() <= certificate);
         }
-#endif
 
         return put(output, CSMAGIC_EMBEDDED_SIGNATURE, blobs);
     }), progress);
@@ -2739,7 +2819,7 @@ DiskFolder::DiskFolder(const std::string &path) :
 }
 
 DiskFolder::~DiskFolder() {
-    if (std::uncaught_exceptions()==0)
+    if (!std::uncaught_exception())
         for (const auto &commit : commit_)
             Commit(commit.first, commit.second);
 }
@@ -2750,7 +2830,7 @@ std::string readlink(const std::string &path) {
         std::string data;
         data.resize(size);
 
-        ssize_t writ(_syscall(::readlink(path.c_str(), &data[0], data.size())));
+        int writ(_syscall(::readlink(path.c_str(), &data[0], data.size())));
         if (size_t(writ) >= size)
             continue;
 
@@ -2952,9 +3032,9 @@ static plist_t plist(const std::string &data) {
         return plist_new_dict();
     plist_t plist(NULL);
     if (Starts(data, "bplist00"))
-        plist_from_bin(data.data(), ldid_u32s(data.size()), &plist);
+        plist_from_bin(data.data(), data.size(), &plist);
     else
-        plist_from_xml(data.data(), ldid_u32s(data.size()), &plist);
+        plist_from_xml(data.data(), data.size(), &plist);
     if (plist == NULL) {
         fprintf(stderr, "ldid: Failed to parse plist\n");
         exit(1);
@@ -3011,8 +3091,8 @@ class Expression {
     }
 
     bool operator ()(const std::string &data) {
-        std::vector<regmatch_t> matches(matches_.size());
-        auto value(regexec(&regex_, data.c_str(), matches_.size(), matches.data(), 0));
+        regmatch_t matches[matches_.size()];
+        auto value(regexec(&regex_, data.c_str(), matches_.size(), matches, 0));
         if (value == REG_NOMATCH)
             return false;
         _assert_(value == 0, "regexec()");
@@ -3552,14 +3632,9 @@ int main(int argc, char *argv[]) {
                     exit(1);
                 }
                 Map file(colon + 1, O_RDONLY, PROT_READ, MAP_PRIVATE);
-                                char *arge;
-                unsigned long _t = strtoul(string, &arge, 0);
-                if (_t > UINT_MAX) {
-                    fprintf(stderr, "ldid: value too large\n");
-                    exit(1);
-                }
-                unsigned number((unsigned)_t);
-if (arge != colon || (number == 0 && errno == EINVAL)) {
+                char *arge;
+                unsigned number(strtoul(string, &arge, 0));
+                if (arge != colon || (number == 0 && errno == EINVAL)) {
                     usage(argv[0]);
                     exit(1);
                 }
@@ -3616,12 +3691,12 @@ if (arge != colon || (number == 0 && errno == EINVAL)) {
                         exit(1);
                     }
                     char *arge;
-                    do { unsigned long _t=strtoul(cpu, &arge, 0); flag_CPUType=ldid_u32((uint64_t)_t); } while(0);
+                    flag_CPUType = strtoul(cpu, &arge, 0);
                     if (arge != colon || (flag_CPUType == 0 && errno == EINVAL)) {
                         usage(argv[0]);
                         exit(1);
                     }
-                    do { unsigned long _t=strtoul(colon + 1, &arge, 0); flag_CPUSubtype=ldid_u32((uint64_t)_t); } while(0);
+                    flag_CPUSubtype = strtoul(colon + 1, &arge, 0);
                     if (arge != argv[argi] + strlen(argv[argi]) || (flag_CPUSubtype == 0 && errno == EINVAL)) {
                         usage(argv[0]);
                         exit(1);
@@ -3942,9 +4017,9 @@ if (arge != colon || (number == 0 && errno == EINVAL)) {
                         auto type(directory->hashType);
                         _assert(type > 0 && type <= algorithms.size());
                         auto &algorithm(*algorithms[type - 1]);
-                        std::vector<uint8_t> hash(algorithm.size_);
-                        algorithm(hash.data(), blob + begin, end - begin);
-                        candidates.insert({type, {directory, end - begin, algorithm, Hex(hash.data(), algorithm.size_), begin}});
+                        uint8_t hash[algorithm.size_];
+                        algorithm(hash, blob + begin, end - begin);
+                        candidates.insert({type, {directory, end - begin, algorithm, Hex(hash, algorithm.size_), begin}});
                     } else if (type == CSSLOT_SIGNATURESLOT) {
                         cmsBegin = Swap(super->index[index].offset);
                         cmsEnd = index + 1 == Swap(super->count) ? Swap(super->blob.length) : Swap(super->index[index + 1].offset);
@@ -4004,6 +4079,7 @@ if (arge != colon || (number == 0 && errno == EINVAL)) {
                     // common name and print it as "Authority=%s"
                     Buffer bio(reinterpret_cast<const char *>(blob) + cmsBegin + sizeof(Blob), cmsEnd - cmsBegin);
                     PKCS7 *p7 = NULL;
+#if !LDID_DISABLE_PKCS7
                     if ((p7 = d2i_PKCS7_bio(bio, NULL)) == NULL) {
                         // In order to follow codesign, we just ignore errors
                         printf("Authority=(unavailable)\n");
@@ -4035,7 +4111,7 @@ if (arge != colon || (number == 0 && errno == EINVAL)) {
                                         break;
                                     e = X509_NAME_get_entry(nm, lastpos);
                                     ASN1_STRING *s = X509_NAME_ENTRY_get_data(e);
-
+#endif
                                     printf("Authority=%s\n", reinterpret_cast<const char *>(ASN1_STRING_get0_data(s)));
                                 }
                             }
@@ -4044,11 +4120,11 @@ if (arge != colon || (number == 0 && errno == EINVAL)) {
                         }
                     }
                     PKCS7_free(p7);
+#endif
+
                 }
 
-                
-#endif
-if (Swap(directory->version) >= 0x20200 && Swap(directory->teamIDOffset) > 0)
+                if (Swap(directory->version) >= 0x20200 && Swap(directory->teamIDOffset) > 0)
                     printf("TeamIdentifier=%s\n", blob + best->second.offset + Swap(directory->teamIDOffset));
                 else
                     printf("TeamIdentifier=not set\n");
@@ -4072,7 +4148,7 @@ if (Swap(directory->version) >= 0x20200 && Swap(directory->teamIDOffset) > 0)
     OSSL_PROVIDER_unload(deflt);
 # endif
 
-    return ldid_i32s(filee);
+    return filee;
 }
 #endif // LDID_NOTOOLS
 
