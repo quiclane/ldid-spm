@@ -1,16 +1,10 @@
 name: Build LDID XCFramework
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
 
 jobs:
-  build-xcframework:
-    name: Build and Release LDID
+  build-and-release:
     runs-on: macos-latest
     steps:
       - name: Checkout Repository
@@ -19,34 +13,34 @@ jobs:
       - name: Set up Swift
         uses: fwal/setup-swift@v2
         with:
-          swift-version: '6.2'
+          swift-version: 6.2
 
       - name: Install GitHub CLI
         run: brew install gh
 
       - name: Build XCFramework
         run: |
-          chmod +x ldid-xc-ios.sh
-          ./ldid-xc-ios.sh
-
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Commit built assets
-        run: |
-          git add XCBuild/LDID.xcframework.zip XCBuild/LDID.xcframework.sha256
-          git commit -m "CI: Built LDID XCFramework $GITHUB_REF_NAME" || echo "No changes to commit"
-          git push origin main
+          mkdir -p XCBuild/out/ios-arm64 XCBuild/out/ios-arm64_x86_64-simulator
+          cp Sources/LDIDBinary/LDID.xcframework/ios-arm64/libLDID_ios.a XCBuild/out/ios-arm64/
+          cp -R Sources/LDIDBinary/LDID.xcframework/ios-arm64/Headers XCBuild/out/ios-arm64/
+          cp Sources/LDIDBinary/LDID.xcframework/ios-arm64_x86_64-simulator/libLDID_sim.a XCBuild/out/ios-arm64_x86_64-simulator/
+          cp -R Sources/LDIDBinary/LDID.xcframework/ios-arm64_x86_64-simulator/Headers XCBuild/out/ios-arm64_x86_64-simulator/
+          xcodebuild -create-xcframework \
+            -library XCBuild/out/ios-arm64/libLDID_ios.a -headers XCBuild/out/ios-arm64/Headers \
+            -library XCBuild/out/ios-arm64_x86_64-simulator/libLDID_sim.a -headers XCBuild/out/ios-arm64_x86_64-simulator/Headers \
+            -output XCBuild/LDID.xcframework
+          shasum -a 256 XCBuild/LDID.xcframework/Info.plist > XCBuild/LDID.xcframework.sha256
+          cd XCBuild && zip -r LDID.xcframework.zip LDID.xcframework && cd ..
 
       - name: Upload Release Assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION_TAG="${GITHUB_REF##*/}"
+          VERSION_TAG="v1.0.3"
           if ! gh release view "$VERSION_TAG" >/dev/null 2>&1; then
-            gh release create "$VERSION_TAG" --title "LDID ${VERSION_TAG#v}" --notes "Full LDID XCFramework release for Swift/Xcode import"
+            gh release create "$VERSION_TAG" \
+              --title "LDID ${VERSION_TAG#v}" \
+              --notes "Full LDID XCFramework release for Swift/Xcode import"
           fi
           gh release upload "$VERSION_TAG" \
             XCBuild/LDID.xcframework.zip \
