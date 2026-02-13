@@ -1,0 +1,3 @@
+[submodule "vendor/ldid"]
+	path = vendor/ldid
+	url = https://github.com/ProcursusTeam/ldid.git
